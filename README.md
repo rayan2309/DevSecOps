@@ -16,12 +16,8 @@ Une équipe de développement demande un audit du dépôt Git **OWASP/wrongsecre
 git clone https://github.com/OWASP/wrongsecrets
 ```
 
-<<<<<<< HEAD
 ![Clone du dépôt](images/exo1/Capture%20d'écran%202026-06-15%20105516.png)
 =======
-!(images/exo1/Capture d'écran 2026-06-15 105516.png)
->>>>>>> 6213621efd7ea116bc75528c205f8f3007717375
-
 ---
 
 Le dépôt contient 44 304 objets pour environ 168 Mo.
@@ -46,12 +42,8 @@ Deux scans ont été réalisés :
 cd wrongsecrets
 gitleaks detect --source . --verbose --report-path gitleaks-report.json
 ```
-
-<<<<<<< HEAD
 ![Scan historique Git](images/exo1/Capture%20d'écran%202026-06-15%20110316.png)
 =======
-!(images/exo1/Capture d'écran 2026-06-15 110316.png)
->>>>>>> 6213621efd7ea116bc75528c205f8f3007717375
 
 **Scan sans historique** (uniquement les fichiers présents) :
 
@@ -61,11 +53,8 @@ gitleaks detect --source . --no-git
 
 Résultat : **1 879 leaks** détectés sur les fichiers actuels.
 
-<<<<<<< HEAD
 ![Scan no-git 1879 leaks](images/exo1/Capture%20d'écran%202026-06-15%20110446.png)
 =======
-!(images/exo1/Capture d'écran 2026-06-15 110446.png)
->>>>>>> 6213621efd7ea116bc75528c205f8f3007717375
 
 **Scan avec export JSON** pour analyse détaillée :
 
@@ -90,11 +79,9 @@ gitleaks detect --source . -v -f json -r rapport.json
 (Get-Content rapport.json | ConvertFrom-Json) | Group-Object RuleID | Sort-Object Count -Descending | Select-Object Count, Name
 ```
 
-<<<<<<< HEAD
 ![Répartition par type](images/exo1/Capture%20d'écran%202026-06-15%20110954.png)
 =======
-!(images/exo1/Capture d'écran 2026-06-15 110954.png)
->>>>>>> 6213621efd7ea116bc75528c205f8f3007717375
+
 
 **Résultat : 1 043 secrets détectés** dans l'historique Git.
 
