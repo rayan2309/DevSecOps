@@ -16,7 +16,7 @@ Une équipe de développement demande un audit du dépôt Git **OWASP/wrongsecre
 git clone https://github.com/OWASP/wrongsecrets
 ```
 
-!Capture d'écran 2026-06-15 105516.png
+!images/exo1/Capture d'écran 2026-06-15 105516.png
 
 ---
 
@@ -43,7 +43,7 @@ cd wrongsecrets
 gitleaks detect --source . --verbose --report-path gitleaks-report.json
 ```
 
-!Capture d'écran 2026-06-15 110316.png
+!images/exo1/Capture d'écran 2026-06-15 110316.png
 
 **Scan sans historique** (uniquement les fichiers présents) :
 
@@ -53,7 +53,7 @@ gitleaks detect --source . --no-git
 
 Résultat : **1 879 leaks** détectés sur les fichiers actuels.
 
-!Capture d'écran 2026-06-15 110446.png
+!images/exo1/Capture d'écran 2026-06-15 110446.png
 
 **Scan avec export JSON** pour analyse détaillée :
 
@@ -78,7 +78,7 @@ gitleaks detect --source . -v -f json -r rapport.json
 (Get-Content rapport.json | ConvertFrom-Json) | Group-Object RuleID | Sort-Object Count -Descending | Select-Object Count, Name
 ```
 
-!Capture d'écran 2026-06-15 110954.png
+!images/exo1/Capture d'écran 2026-06-15 110954.png
 
 **Résultat : 1 043 secrets détectés** dans l'historique Git.
 
