@@ -16,7 +16,7 @@ Une équipe de développement demande un audit du dépôt Git **OWASP/wrongsecre
 git clone https://github.com/OWASP/wrongsecrets
 ```
 
-!Capture d'écran 2026-06-15 105516.png
+![Clone du dépôt](images/exo1/Capture%20d'écran%202026-06-15%20105516.png)
 
 ---
 
@@ -43,7 +43,7 @@ cd wrongsecrets
 gitleaks detect --source . --verbose --report-path gitleaks-report.json
 ```
 
-!Capture d'écran 2026-06-15 110316.png
+![Scan historique Git](images/exo1/Capture%20d'écran%202026-06-15%20110316.png)
 
 **Scan sans historique** (uniquement les fichiers présents) :
 
@@ -53,7 +53,7 @@ gitleaks detect --source . --no-git
 
 Résultat : **1 879 leaks** détectés sur les fichiers actuels.
 
-!Capture d'écran 2026-06-15 110446.png
+![Scan no-git 1879 leaks](images/exo1/Capture%20d'écran%202026-06-15%20110446.png)
 
 **Scan avec export JSON** pour analyse détaillée :
 
@@ -78,7 +78,7 @@ gitleaks detect --source . -v -f json -r rapport.json
 (Get-Content rapport.json | ConvertFrom-Json) | Group-Object RuleID | Sort-Object Count -Descending | Select-Object Count, Name
 ```
 
-!Capture d'écran 2026-06-15 110954.png
+![Répartition par type](images/exo1/Capture%20d'écran%202026-06-15%20110954.png)
 
 **Résultat : 1 043 secrets détectés** dans l'historique Git.
 
@@ -325,4 +325,152 @@ Non. Semgrep a retourné **0 finding** malgré l'application de 678 règles issu
 ### Quelles corrections recommanderiez-vous ?
 
 Remplacer la construction dynamique du template par un template statique avec variables Jinja2 (neutralise SSTI et XSS simultanément), externaliser tous les secrets dans des variables d'environnement stockées hors du dépôt, et intégrer un outil de détection de secrets comme Gitleaks en hook pre-commit pour éviter tout futur commit de credentials.
+
+---
+
+# Exercice 3 – Analyse des dépendances (SCA) avec Trivy
+
+## Contexte
+
+Une application Java Spring Boot utilise de nombreuses bibliothèques Open Source. L'objectif est de vérifier si certaines contiennent des vulnérabilités connues avant toute mise en production.
+
+**Dépôt audité :** https://github.com/veracode/verademo
+
+---
+
+## 1. Cloner le dépôt
+
+```
+git clone https://github.com/veracode/verademo
+cd verademo
+```
+
+![Clone du dépôt](images/exo3/Capture%20d'écran%202026-06-18%20105932.png)
+
+---
+
+## 2. Installer Trivy
+
+```powershell
+winget install AquaSecurity.Trivy
+```
+
+![Installation Trivy](images/exo3/Capture%20d'écran%202026-06-18%20110205.png)
+
+---
+
+## 3. Scanner le système de fichiers
+
+Le scan est lancé depuis le sous-dossier `app/` contenant le `pom.xml`. Maven doit d'abord être exécuté pour peupler le cache local `~/.m2` et éviter les erreurs de rate-limiting de Maven Central.
+
+```powershell
+cd app
+mvn dependency:resolve
+cd ..
+trivy fs . --format json --output trivy-report.json
+```
+
+![Scan Trivy en cours](images/exo3/Capture%20d'écran%202026-06-18%20132511.png)
+
+---
+
+## 4. Identifier les dépendances vulnérables
+
+### Nombre total de vulnérabilités
+
+```powershell
+(Get-Content trivy-report.json | ConvertFrom-Json).Results | ForEach-Object { $_.Vulnerabilities } | Measure-Object | Select-Object Count
+```
+
+![Total 126 vulnérabilités](images/exo3/Capture%20d'écran%202026-06-18%20132647.png)
+
+**Résultat : 126 vulnérabilités détectées.**
+
+### Répartition par sévérité
+
+```powershell
+(Get-Content trivy-report.json | ConvertFrom-Json).Results | ForEach-Object { $_.Vulnerabilities } | Group-Object Severity | Sort-Object Count -Descending | Select-Object Count, Name
+```
+
+![Répartition par sévérité](images/exo3/Capture%20d'écran%202026-06-18%20132708.png)
+
+| Sévérité | Nombre |
+| --- | --- |
+| HIGH | 56 |
+| MEDIUM | 47 |
+| CRITICAL | 15 |
+| LOW | 8 |
+
+---
+
+## 5. CVE les plus critiques
+
+```powershell
+(Get-Content trivy-report.json | ConvertFrom-Json).Results | ForEach-Object { $_.Vulnerabilities } | Where-Object { $_.Severity -eq "CRITICAL" } | Select-Object VulnerabilityID, PkgName, InstalledVersion, FixedVersion | Format-Table
+```
+
+![Liste des CVE critiques](images/exo3/Capture%20d'écran%202026-06-18%20132724.png)
+
+| CVE | Dépendance | Version installée | Version corrigée |
+| --- | --- | --- | --- |
+| CVE-2019-17571 | log4j:log4j | 1.2.17 | — |
+| CVE-2022-23305 | log4j:log4j | 1.2.17 | — |
+| CVE-2022-23307 | log4j:log4j | 1.2.17 | — |
+| CVE-2016-1000031 | commons-fileupload | 1.3.2 | 1.3.3 |
+| CVE-2015-7501 | commons-collections4 | 4.0 | 4.1 |
+| CVE-2022-47937 | org.apache.sling.commons.json | 2.0.4-incubator | — |
+| CVE-2025-24813 | tomcat-embed-core | 9.0.36 | 11.0.3 / 10.1.35 / 9.0.99 |
+| CVE-2026-41293 | tomcat-embed-core | 9.0.36 | 11.0.3 / 10.1.35 / 9.0.99 |
+| CVE-2026-43512 | tomcat-embed-core | 9.0.36 | 11.0.3 / 10.1.35 / 9.0.99 |
+| CVE-2026-43515 | tomcat-embed-core | 9.0.36 | 11.0.3 / 10.1.35 / 9.0.99 |
+| CVE-2022-22965 | spring-boot-starter-web | 2.3.1.RELEASE | 2.5.12 / 2.6.6 |
+| CVE-2022-22965 | spring-beans | 5.2.7.RELEASE | 5.2.20.RELEASE / 5.3.18 |
+| CVE-2016-1000027 | spring-web | 5.2.7.RELEASE | 6.0.0 |
+| CVE-2017-1000487 | plexus-utils | 1.0.4 | 3.0.16 |
+
+---
+
+## 6. Plan de mise à jour
+
+Les vulnérabilités les plus critiques concernent **Log4j 1.x**, **Apache Tomcat** et **Spring Framework**. Voici les actions prioritaires :
+
+### Priorité 1 – Log4j (3 CVE critiques, pas de fix sur la branche 1.x)
+
+Log4j 1.2.17 est en fin de vie depuis 2015 et ne sera plus corrigé. Les CVE détectées permettent l'exécution de code arbitraire à distance (RCE).
+
+**Action :** Migrer vers **Log4j 2.x** (≥ 2.17.1) ou remplacer par SLF4J + Logback.
+
+### Priorité 2 – Apache Tomcat (4 CVE critiques)
+
+La version 9.0.36 embarquée contient plusieurs vulnérabilités critiques.
+
+**Action :** Mettre à jour `spring-boot-starter-parent` vers une version récente qui embarque Tomcat ≥ 9.0.99.
+
+### Priorité 3 – Spring Framework (CVE-2022-22965 – Spring4Shell)
+
+Spring4Shell est une vulnérabilité RCE très connue sur Spring 5.2.x et 5.3.x avant les versions correctives.
+
+**Action :** Mettre à jour vers Spring Boot ≥ 2.6.6 ou ≥ 2.5.12.
+
+### Priorité 4 – Commons FileUpload et Collections
+
+**Action :** Passer `commons-fileupload` en 1.3.3 et `commons-collections4` en 4.1.
+
+---
+
+### Combien de vulnérabilités sont détectées ?
+
+**126 vulnérabilités** ont été détectées au total : 15 critiques, 56 élevées, 47 moyennes et 8 faibles.
+
+### Quelle est la vulnérabilité la plus critique ?
+
+Les trois CVE sur **Log4j 1.2.17** (CVE-2019-17571, CVE-2022-23305, CVE-2022-23307) sont parmi les plus dangereuses car elles permettent une exécution de code arbitraire à distance et aucun correctif n'existe sur cette branche — la seule solution est la migration vers Log4j 2.x. **CVE-2022-22965 (Spring4Shell)** est également à considérer comme critique : c'est une RCE sur Spring Framework largement documentée et exploitée.
+
+### Quelle dépendance est concernée ?
+
+Les dépendances les plus touchées sont **log4j:log4j 1.2.17** (3 CVE critiques, fin de vie), **org.apache.tomcat.embed:tomcat-embed-core 9.0.36** (4 CVE critiques) et **org.springframework:spring-beans 5.2.7.RELEASE** (Spring4Shell).
+
+### Quelle version corrige le problème ?
+
+Pour Log4j, il n'existe pas de version 1.x corrective — il faut migrer vers Log4j 2 ≥ 2.17.1. Pour Tomcat, la version 9.0.99 corrige les CVE identifiées. Pour Spring4Shell, les versions 5.2.20.RELEASE ou 5.3.18 apportent le correctif, ou une migration vers Spring Boot ≥ 2.6.6.
 
