@@ -183,3 +183,146 @@ Les secrets les plus critiques sont les **clés d'accès cloud** (AWS, GCP), les
 Trois axes complémentaires : externaliser les secrets via un gestionnaire dédié et des variables d'environnement, automatiser la détection avec un hook pre-commit Gitleaks et une intégration CI/CD, et sensibiliser les développeurs aux bonnes pratiques (`.gitignore` strict, revue de code, politique de rotation des secrets).
 
 # Exercice 2 – Analyse statique de code (SAST) avec Semgrep
+
+## Contexte
+
+Une API Python développée rapidement doit être auditée avant sa mise en production.
+
+**Dépôt audité :** https://github.com/trottomv/python-insecure-app
+
+---
+
+## 1. Cloner le dépôt
+
+```
+git clone https://github.com/trottomv/python-insecure-app
+cd python-insecure-app
+```
+
+![Clone du dépôt](images/exo2/Capture%20d'écran%202026-06-15%20120159.png)
+
+---
+
+## 2. Installer Semgrep
+
+Installation via pip sous Windows :
+
+```powershell
+pip install semgrep
+```
+
+---
+
+## 3. Lancer une analyse
+
+Plusieurs scans ont été réalisés avec des rulesets progressivement élargis.
+
+**Premier scan (règles auto) :**
+
+```
+semgrep scan --config=auto --json -o semgrep-report.json .
+```
+
+![Résultat scan auto](images/exo2/Capture%20d'écran%202026-06-15%20154142.png)
+
+**Scan élargi avec les packs Python, OWASP Top 10 et security-audit :**
+
+```
+semgrep scan --config "p/python" --config "p/owasp-top-ten" --config "p/security-audit" . --json -o semgrep-report.json
+```
+
+![Scan élargi](images/exo2/Capture%20d'écran%202026-06-15%20154603.png)
+
+---
+
+## 4. Analyser les résultats
+
+```powershell
+(Get-Content semgrep-report.json | ConvertFrom-Json).results.Count
+```
+
+![Résultat 0 findings](images/exo2/Capture%20d'écran%202026-06-18%20103125.png)
+
+Malgré 678 règles appliquées sur 25 fichiers, Semgrep remonte **0 finding**.
+
+---
+
+## 5. Identifier les vulnérabilités détectées
+
+Semgrep n'a détecté aucune vulnérabilité automatiquement. Une analyse manuelle du code source révèle pourtant trois problèmes critiques :
+
+### SSTI – Server-Side Template Injection (`app/main.py`, ligne 41)
+
+```python
+content = f"<h1>Hello, {name}!</h1><h2>Public IP: <code>{public_ip}</code></h2>"
+return Template(content).render()
+```
+
+Le paramètre `name`, fourni directement par l'utilisateur via l'URL, est interpolé dans un template Jinja2 puis rendu côté serveur. Un attaquant peut injecter des expressions Jinja2 (`{{ 7*7 }}`, `{{ config }}`, `{{ ''.__class__.__mro__[1].__subclasses__() }}`) pour exécuter du code arbitraire sur le serveur. Il s'agit d'une vulnérabilité **OWASP A03 – Injection**.
+
+### XSS – Cross-Site Scripting (`app/main.py`, ligne 38)
+
+```python
+content = f"<h1>Hello, {name}!</h1>..."
+```
+
+Le paramètre `name` est injecté directement dans le HTML sans aucun encodage ou sanitisation. Un attaquant peut insérer du JavaScript malveillant (`<script>...</script>`) qui s'exécutera dans le navigateur de la victime. Il s'agit d'une vulnérabilité **OWASP A03 – Injection**.
+
+### Secrets hardcodés (`app/config.py`, lignes 13–15)
+
+```python
+SUPER_SECRET_NAME = "John Ripper"  # FIXME: os.getenv("SUPER_SECRET_NAME")
+SUPER_SECRET_TOKEN = "5u93R53Cr3tT0k3n"  # FIXME: os.getenv("SUPER_SECRET_TOKEN")
+```
+
+Des secrets sont écrits en clair dans le code source, avec des commentaires `FIXME` indiquant que les développeurs étaient conscients du problème. Ces valeurs sont exposées dans l'historique Git et accessibles à toute personne ayant accès au dépôt. Il s'agit d'une vulnérabilité **OWASP A02 – Cryptographic Failures**.
+
+---
+
+## 6. Proposer des corrections
+
+**Correction SSTI/XSS :**
+
+Ne jamais construire un template à partir de données utilisateur. Utiliser un template statique avec des variables passées en paramètre :
+
+```python
+# Avant (vulnérable)
+content = f"<h1>Hello, {name}!</h1>"
+return Template(content).render()
+
+# Après (corrigé)
+template = Template("<h1>Hello, {{ name }}!</h1><h2>Public IP: <code>{{ ip }}</code></h2>")
+return template.render(name=name, ip=public_ip)
+```
+
+Jinja2 applique l'auto-échappement sur les variables passées en contexte, ce qui neutralise à la fois le SSTI et le XSS. En FastAPI, retourner une `HTMLResponse` directement avec le contenu encodé est également préférable.
+
+**Correction secrets hardcodés :**
+
+Externaliser les secrets dans des variables d'environnement et ne jamais les committer :
+
+```python
+SUPER_SECRET_NAME = os.getenv("SUPER_SECRET_NAME")
+SUPER_SECRET_TOKEN = os.getenv("SUPER_SECRET_TOKEN")
+```
+
+Ajouter `.env` au `.gitignore` et utiliser un gestionnaire de secrets (Vault, AWS Secrets Manager) en production.
+
+---
+
+### Quelles vulnérabilités ont été identifiées ?
+
+Trois vulnérabilités ont été identifiées par analyse manuelle : une **injection de template côté serveur (SSTI)** dans `app/main.py:41`, une **faille XSS** dans `app/main.py:38`, et des **secrets hardcodés** dans `app/config.py:13-15`.
+
+### Quels risques présentent-elles ?
+
+Le SSTI est la vulnérabilité la plus critique : il permet à un attaquant d'exécuter du code arbitraire sur le serveur (RCE), pouvant mener à une compromission totale de la machine. Le XSS permet l'injection de JavaScript malveillant dans le navigateur des utilisateurs (vol de session, phishing). Les secrets hardcodés exposent des credentials dans l'historique Git, accessibles à quiconque clone le dépôt.
+
+### Les résultats vous semblent-ils tous pertinents ?
+
+Non. Semgrep a retourné **0 finding** malgré l'application de 678 règles issues de trois rulesets différents (p/python, p/owasp-top-ten, p/security-audit). Il s'agit de **faux négatifs** : l'outil n'a pas été capable de détecter les vulnérabilités réelles présentes dans le code. Cela illustre la limite des outils SAST automatiques, qui ne remplacent pas une revue manuelle du code, notamment pour des patterns complexes comme la construction dynamique de templates.
+
+### Quelles corrections recommanderiez-vous ?
+
+Remplacer la construction dynamique du template par un template statique avec variables Jinja2 (neutralise SSTI et XSS simultanément), externaliser tous les secrets dans des variables d'environnement stockées hors du dépôt, et intégrer un outil de détection de secrets comme Gitleaks en hook pre-commit pour éviter tout futur commit de credentials.
+
