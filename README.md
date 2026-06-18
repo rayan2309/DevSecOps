@@ -16,7 +16,11 @@ Une équipe de développement demande un audit du dépôt Git **OWASP/wrongsecre
 git clone https://github.com/OWASP/wrongsecrets
 ```
 
+<<<<<<< HEAD
 ![Clone du dépôt](images/exo1/Capture%20d'écran%202026-06-15%20105516.png)
+=======
+!(images/exo1/Capture d'écran 2026-06-15 105516.png)
+>>>>>>> 6213621efd7ea116bc75528c205f8f3007717375
 
 ---
 
@@ -43,7 +47,11 @@ cd wrongsecrets
 gitleaks detect --source . --verbose --report-path gitleaks-report.json
 ```
 
+<<<<<<< HEAD
 ![Scan historique Git](images/exo1/Capture%20d'écran%202026-06-15%20110316.png)
+=======
+!(images/exo1/Capture d'écran 2026-06-15 110316.png)
+>>>>>>> 6213621efd7ea116bc75528c205f8f3007717375
 
 **Scan sans historique** (uniquement les fichiers présents) :
 
@@ -53,7 +61,11 @@ gitleaks detect --source . --no-git
 
 Résultat : **1 879 leaks** détectés sur les fichiers actuels.
 
+<<<<<<< HEAD
 ![Scan no-git 1879 leaks](images/exo1/Capture%20d'écran%202026-06-15%20110446.png)
+=======
+!(images/exo1/Capture d'écran 2026-06-15 110446.png)
+>>>>>>> 6213621efd7ea116bc75528c205f8f3007717375
 
 **Scan avec export JSON** pour analyse détaillée :
 
@@ -78,7 +90,11 @@ gitleaks detect --source . -v -f json -r rapport.json
 (Get-Content rapport.json | ConvertFrom-Json) | Group-Object RuleID | Sort-Object Count -Descending | Select-Object Count, Name
 ```
 
+<<<<<<< HEAD
 ![Répartition par type](images/exo1/Capture%20d'écran%202026-06-15%20110954.png)
+=======
+!(images/exo1/Capture d'écran 2026-06-15 110954.png)
+>>>>>>> 6213621efd7ea116bc75528c205f8f3007717375
 
 **Résultat : 1 043 secrets détectés** dans l'historique Git.
 
@@ -249,66 +265,8 @@ Malgré 678 règles appliquées sur 25 fichiers, Semgrep remonte **0 finding**.
 
 ## 5. Identifier les vulnérabilités détectées
 
-Semgrep n'a détecté aucune vulnérabilité automatiquement. Une analyse manuelle du code source révèle pourtant trois problèmes critiques :
+Semgrep n'a détecté aucune vulnérabilité automatiquement. 
 
-### SSTI – Server-Side Template Injection (`app/main.py`, ligne 41)
-
-```python
-content = f"<h1>Hello, {name}!</h1><h2>Public IP: <code>{public_ip}</code></h2>"
-return Template(content).render()
-```
-
-Le paramètre `name`, fourni directement par l'utilisateur via l'URL, est interpolé dans un template Jinja2 puis rendu côté serveur. Un attaquant peut injecter des expressions Jinja2 (`{{ 7*7 }}`, `{{ config }}`, `{{ ''.__class__.__mro__[1].__subclasses__() }}`) pour exécuter du code arbitraire sur le serveur. Il s'agit d'une vulnérabilité **OWASP A03 – Injection**.
-
-### XSS – Cross-Site Scripting (`app/main.py`, ligne 38)
-
-```python
-content = f"<h1>Hello, {name}!</h1>..."
-```
-
-Le paramètre `name` est injecté directement dans le HTML sans aucun encodage ou sanitisation. Un attaquant peut insérer du JavaScript malveillant (`<script>...</script>`) qui s'exécutera dans le navigateur de la victime. Il s'agit d'une vulnérabilité **OWASP A03 – Injection**.
-
-### Secrets hardcodés (`app/config.py`, lignes 13–15)
-
-```python
-SUPER_SECRET_NAME = "John Ripper"  # FIXME: os.getenv("SUPER_SECRET_NAME")
-SUPER_SECRET_TOKEN = "5u93R53Cr3tT0k3n"  # FIXME: os.getenv("SUPER_SECRET_TOKEN")
-```
-
-Des secrets sont écrits en clair dans le code source, avec des commentaires `FIXME` indiquant que les développeurs étaient conscients du problème. Ces valeurs sont exposées dans l'historique Git et accessibles à toute personne ayant accès au dépôt. Il s'agit d'une vulnérabilité **OWASP A02 – Cryptographic Failures**.
-
----
-
-## 6. Proposer des corrections
-
-**Correction SSTI/XSS :**
-
-Ne jamais construire un template à partir de données utilisateur. Utiliser un template statique avec des variables passées en paramètre :
-
-```python
-# Avant (vulnérable)
-content = f"<h1>Hello, {name}!</h1>"
-return Template(content).render()
-
-# Après (corrigé)
-template = Template("<h1>Hello, {{ name }}!</h1><h2>Public IP: <code>{{ ip }}</code></h2>")
-return template.render(name=name, ip=public_ip)
-```
-
-Jinja2 applique l'auto-échappement sur les variables passées en contexte, ce qui neutralise à la fois le SSTI et le XSS. En FastAPI, retourner une `HTMLResponse` directement avec le contenu encodé est également préférable.
-
-**Correction secrets hardcodés :**
-
-Externaliser les secrets dans des variables d'environnement et ne jamais les committer :
-
-```python
-SUPER_SECRET_NAME = os.getenv("SUPER_SECRET_NAME")
-SUPER_SECRET_TOKEN = os.getenv("SUPER_SECRET_TOKEN")
-```
-
-Ajouter `.env` au `.gitignore` et utiliser un gestionnaire de secrets (Vault, AWS Secrets Manager) en production.
-
----
 
 ### Quelles vulnérabilités ont été identifiées ?
 
