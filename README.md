@@ -17,7 +17,7 @@ git clone https://github.com/OWASP/wrongsecrets
 ```
 
 ![Clone du dépôt](images/exo1/Capture%20d'écran%202026-06-15%20105516.png)
-=======
+
 ---
 
 Le dépôt contient 44 304 objets pour environ 168 Mo.
@@ -43,7 +43,6 @@ cd wrongsecrets
 gitleaks detect --source . --verbose --report-path gitleaks-report.json
 ```
 ![Scan historique Git](images/exo1/Capture%20d'écran%202026-06-15%20110316.png)
-=======
 
 **Scan sans historique** (uniquement les fichiers présents) :
 
@@ -54,7 +53,6 @@ gitleaks detect --source . --no-git
 Résultat : **1 879 leaks** détectés sur les fichiers actuels.
 
 ![Scan no-git 1879 leaks](images/exo1/Capture%20d'écran%202026-06-15%20110446.png)
-=======
 
 **Scan avec export JSON** pour analyse détaillée :
 
@@ -80,8 +78,6 @@ gitleaks detect --source . -v -f json -r rapport.json
 ```
 
 ![Répartition par type](images/exo1/Capture%20d'écran%202026-06-15%20110954.png)
-=======
-
 
 **Résultat : 1 043 secrets détectés** dans l'historique Git.
 
@@ -418,4 +414,134 @@ Les dépendances les plus touchées sont **log4j:log4j 1.2.17** (3 CVE critiques
 ### Quelle version corrige le problème ?
 
 Pour Log4j, il n'existe pas de version 1.x corrective — il faut migrer vers Log4j 2 ≥ 2.17.1. Pour Tomcat, la version 9.0.99 corrige les CVE identifiées. Pour Spring4Shell, les versions 5.2.20.RELEASE ou 5.3.18 apportent le correctif, ou une migration vers Spring Boot ≥ 2.6.6.
+
+---
+
+# Exercice 4 – Analyse d'image Docker avec Trivy
+
+## Contexte
+
+Avant la mise en production d'une application conteneurisée, l'équipe sécurité demande une analyse de l'image Docker de **OWASP Juice Shop**, une application web volontairement vulnérable.
+
+**Dépôt audité :** https://github.com/juice-shop/juice-shop
+
+---
+
+## 1. Cloner le dépôt
+
+```
+git clone https://github.com/juice-shop/juice-shop
+cd juice-shop
+```
+
+![Clone du dépôt](images/exo4/Capture%20d'écran%202026-06-18%20121113.png)
+
+---
+
+## 2. Construire l'image Docker
+
+La construction locale de l'image n'a pas pu être réalisée : Docker Desktop requiert la virtualisation matérielle (Hyper-V / WSL2), qui n'est pas disponible sur la machine utilisée malgré la virtualisation activée dans le BIOS. Docker Desktop affiche l'erreur **"Virtualization support not detected"** et refuse de démarrer son moteur.
+
+![Erreur Docker Desktop](images/exo4/Capture%20d'écran%202026-06-18%20134401.png)
+
+En alternative, Trivy a été utilisé pour scanner directement l'**image officielle publiée sur Docker Hub** (`bkimminich/juice-shop`), qui correspond à l'image de production du projet et produit des résultats identiques à un build local.
+
+---
+
+## 3. Scanner l'image
+
+```powershell
+trivy image bkimminich/juice-shop --format json --output trivy-image-report.json
+```
+
+Trivy télécharge l'image depuis Docker Hub et analyse ses couches. L'image tourne sur **Debian 13.5** et embarque des paquets Node.js.
+
+![Scan Trivy en cours](images/exo4/Capture%20d'écran%202026-06-18%20140940.png)
+
+---
+
+## 4. Analyser les vulnérabilités détectées
+
+### Nombre de vulnérabilités critiques
+
+```powershell
+(Get-Content trivy-image-report.json | ConvertFrom-Json).Results | ForEach-Object { $_.Vulnerabilities } | Where-Object { $_.Severity -eq "CRITICAL" } | Measure-Object | Select-Object Count
+```
+
+![5 vulnérabilités critiques](images/exo4/Capture%20d'écran%202026-06-18%20141802.png)
+
+**Résultat : 5 vulnérabilités critiques.**
+
+### Répartition par sévérité
+
+```powershell
+(Get-Content trivy-image-report.json | ConvertFrom-Json).Results | ForEach-Object { $_.Vulnerabilities } | Group-Object Severity | Sort-Object Count -Descending | Select-Object Count, Name
+```
+
+![Répartition par sévérité](images/exo4/Capture%20d'écran%202026-06-18%20141818.png)
+
+| Sévérité | Nombre |
+| --- | --- |
+| HIGH | 43 |
+| MEDIUM | 35 |
+| LOW | 21 |
+| CRITICAL | 5 |
+
+**Total : 104 vulnérabilités détectées.**
+
+---
+
+## 5. Identifier les vulnérabilités les plus critiques
+
+```powershell
+(Get-Content trivy-image-report.json | ConvertFrom-Json).Results | ForEach-Object { $_.Vulnerabilities } | Where-Object { $_.Severity -eq "CRITICAL" } | Select-Object VulnerabilityID, PkgName, InstalledVersion, FixedVersion | Sort-Object PkgName | Format-Table
+```
+
+![Détail des CVE critiques](images/exo4/Capture%20d'écran%202026-06-18%20141837.png)
+
+| CVE | Paquet | Version installée | Version corrigée |
+| --- | --- | --- | --- |
+| CVE-2023-46233 | crypto-js | 3.3.0 | 4.2.0 |
+| CVE-2015-9235 | jsonwebtoken | 0.4.0 | 4.2.2 |
+| CVE-2015-9235 | jsonwebtoken | 0.1.0 | 4.2.2 |
+| CVE-2019-10744 | lodash | 4.2.2 | 4.17.12 |
+| GHSA-5mrr-rgp6-x4gr | marsdb | 0.6.11 | — |
+
+---
+
+## 6. Actions correctives
+
+### crypto-js (CVE-2023-46233)
+
+Vulnérabilité dans le chiffrement PBKDF2 permettant à un attaquant de casser des mots de passe jusqu'à 1000x plus rapidement qu'attendu. **Action :** Mettre à jour vers crypto-js ≥ 4.2.0.
+
+### jsonwebtoken (CVE-2015-9235)
+
+Versions extrêmement anciennes (0.1.0 et 0.4.0) permettant la falsification de tokens JWT en forçant l'algorithme `none`. Un attaquant peut s'authentifier sans clé secrète. **Action :** Mettre à jour vers jsonwebtoken ≥ 4.2.2, idéalement vers la version actuelle (≥ 9.x).
+
+### lodash (CVE-2019-10744)
+
+Prototype pollution permettant à un attaquant de modifier le prototype des objets JavaScript et d'injecter des propriétés arbitraires. **Action :** Mettre à jour vers lodash ≥ 4.17.12.
+
+### marsdb (GHSA-5mrr-rgp6-x4gr)
+
+Aucune version corrigée disponible — le projet est abandonné. **Action :** Remplacer marsdb par une alternative maintenue (MongoDB, NeDB fork).
+
+---
+
+### Combien de vulnérabilités critiques sont présentes ?
+
+**5 vulnérabilités critiques** ont été détectées, pour un total de 104 vulnérabilités toutes sévérités confondues (43 HIGH, 35 MEDIUM, 21 LOW, 5 CRITICAL).
+
+### Quels composants sont concernés ?
+
+Les composants critiques sont tous des **dépendances Node.js** : `crypto-js`, `jsonwebtoken` (deux versions), `lodash` et `marsdb`. Ces bibliothèques sont embarquées directement dans l'image et ne proviennent pas du système d'exploitation Debian sous-jacent.
+
+### Quelles mises à jour permettraient de réduire le risque ?
+
+Mettre à jour `crypto-js` vers ≥ 4.2.0, `jsonwebtoken` vers ≥ 9.x et `lodash` vers ≥ 4.17.12 éliminerait 4 des 5 vulnérabilités critiques. Pour `marsdb`, abandonné et sans correctif, la seule option est le remplacement par une alternative maintenue.
+
+### Le déploiement vous semble-t-il acceptable en l'état ?
+
+Non. La présence de vulnérabilités critiques sur des composants d'authentification (`jsonwebtoken`) et de chiffrement (`crypto-js`) rend le déploiement inacceptable en production. La falsification de tokens JWT (CVE-2015-9235) permettrait à un attaquant de contourner entièrement l'authentification de l'application. Ces corrections doivent être appliquées avant toute mise en production.
 
