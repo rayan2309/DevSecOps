@@ -545,3 +545,182 @@ Mettre à jour `crypto-js` vers ≥ 4.2.0, `jsonwebtoken` vers ≥ 9.x et `lodas
 
 Non. La présence de vulnérabilités critiques sur des composants d'authentification (`jsonwebtoken`) et de chiffrement (`crypto-js`) rend le déploiement inacceptable en production. La falsification de tokens JWT (CVE-2015-9235) permettrait à un attaquant de contourner entièrement l'authentification de l'application. Ces corrections doivent être appliquées avant toute mise en production.
 
+---
+
+# Exercice 5 – Analyse d'Infrastructure as Code avec Checkov
+
+## Contexte
+
+Une infrastructure AWS est décrite avec Terraform. Avant son déploiement, Checkov est utilisé pour vérifier sa conformité aux bonnes pratiques de sécurité.
+
+**Dépôt audité :** https://github.com/bridgecrewio/terragoat
+
+---
+
+## 1. Cloner le dépôt
+
+```
+git clone https://github.com/bridgecrewio/terragoat
+cd terragoat
+```
+
+![Clone du dépôt](images/exo5/Capture%20d'écran%202026-06-18%20151932.png)
+
+---
+
+## 2. Installer Checkov
+
+```powershell
+pip install checkov
+```
+
+![Installation Checkov](images/exo5/Capture%20d'écran%202026-06-18%20152058.png)
+
+---
+
+## 3. Lancer l'analyse
+
+```powershell
+python -m checkov.main -d terraform/aws --output json > checkov-report.json
+```
+
+---
+
+## 4. Étudier les résultats
+
+### Nombre total de contrôles échoués
+
+```powershell
+(Get-Content checkov-report.json | ConvertFrom-Json).results.failed_checks.Count
+```
+
+![221 contrôles échoués](images/exo5/Capture%20d'écran%202026-06-18%20152444.png)
+
+**Résultat : 221 contrôles échoués.**
+
+### Top des checks les plus fréquents
+
+```powershell
+(Get-Content checkov-report.json | ConvertFrom-Json).results.failed_checks | Group-Object check_id | Sort-Object Count -Descending | Select-Object -First 15 Count, Name
+```
+
+![Top 15 checks](images/exo5/Capture%20d'écran%202026-06-18%20152714.png)
+
+---
+
+## 5. Identifier les ressources à risque
+
+Les 221 échecs sont répartis sur l'ensemble des ressources AWS. Voici les principales catégories identifiées :
+
+### Bases de données RDS / Aurora (9 clusters × 8-9 checks)
+
+| Check | Problème |
+| --- | --- |
+| CKV_AWS_96 | Pas d'authentification IAM activée |
+| CKV_AWS_139 | Pas de protection contre la suppression |
+| CKV_AWS_162 | Pas de chiffrement du stockage |
+| CKV_AWS_313 / 324 / 325 / 326 / 327 | Logs CloudWatch non activés, backup insuffisant |
+
+Les 9 clusters RDS (`app1` à `app9`) souffrent tous des mêmes misconfiguration — impact démultiplié.
+
+### Buckets S3 (6 buckets)
+
+| Check | Problème |
+| --- | --- |
+| CKV_AWS_18 | Pas de logging d'accès |
+| CKV_AWS_21 | Pas de versioning |
+| CKV_AWS_144 | Pas de réplication cross-region |
+| CKV_AWS_145 | Chiffrement SSE non activé |
+| CKV2_AWS_6 | Pas de politique de blocage d'accès public |
+| CKV2_AWS_61 / 62 | Pas de MFA Delete, pas de cycle de vie configuré |
+
+### Security Groups (règles réseau trop permissives)
+
+| Check | Problème |
+| --- | --- |
+| CKV_AWS_23 | Règles entrantes/sortantes ouvertes à `0.0.0.0/0` |
+| CKV_AWS_24 | Port 22 (SSH) ouvert publiquement |
+| CKV_AWS_260 | Port 80 ouvert sans restriction |
+| CKV_AWS_382 | Règles egress sans restriction |
+
+### IAM (gestion des accès)
+
+| Check | Problème |
+| --- | --- |
+| CKV_AWS_41 | **Clés d'accès AWS en clair dans le provider Terraform** |
+| CKV_AWS_109 / 111 | Politiques IAM avec permissions wildcard (`*`) |
+| CKV_AWS_273 | Utilisateur IAM sans MFA |
+| CKV_AWS_287 / 288 / 289 / 290 | Politiques trop permissives sur les rôles et utilisateurs |
+
+### EKS (Kubernetes managé)
+
+| Check | Problème |
+| --- | --- |
+| CKV_AWS_37 / 38 / 39 | Logs du control plane désactivés |
+| CKV_AWS_58 | Secrets Kubernetes non chiffrés avec KMS |
+
+### Lambda
+
+| Check | Problème |
+| --- | --- |
+| CKV_AWS_45 | Variables d'environnement non chiffrées |
+| CKV_AWS_115 / 116 / 117 | Pas de VPC, pas de tracing X-Ray, pas de concurrence réservée |
+
+### Secrets détectés dans le code
+
+| Check | Ressource |
+| --- | --- |
+| CKV_SECRET_2 | 4 secrets hardcodés détectés dans des commits |
+
+---
+
+## 6. Proposer des corrections
+
+### Priorité 1 – Clés AWS en clair (CKV_AWS_41)
+
+Des credentials AWS sont écrits directement dans le provider Terraform. C'est la misconfiguration la plus critique : toute personne ayant accès au dépôt peut prendre le contrôle du compte AWS.
+
+**Correction :** Supprimer les clés du code, utiliser des variables d'environnement (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) ou des profils IAM via `~/.aws/credentials`.
+
+### Priorité 2 – Security Groups ouverts à Internet
+
+Les ports SSH (22) et HTTP (80) sont ouverts sans restriction à `0.0.0.0/0`, exposant les instances directement sur Internet.
+
+**Correction :** Restreindre les règles ingress aux plages IP légitimes ou utiliser un bastion host / VPN pour l'accès SSH.
+
+### Priorité 3 – Chiffrement des données au repos
+
+Les volumes EBS, buckets S3 et clusters RDS ne sont pas chiffrés.
+
+**Correction :** Activer le chiffrement SSE-S3 ou SSE-KMS sur les buckets, activer `storage_encrypted = true` sur les instances RDS et `encrypted = true` sur les volumes EBS.
+
+### Priorité 4 – Logging et supervision
+
+Aucun des services (RDS, EKS, S3, Lambda) n'envoie de logs vers CloudWatch ou un SIEM. En cas d'incident, il sera impossible de reconstituer les événements.
+
+**Correction :** Activer CloudWatch Logs sur RDS et EKS, le logging d'accès S3, et le tracing X-Ray sur Lambda.
+
+### Priorité 5 – Protection des buckets S3
+
+Les buckets n'ont pas de versioning ni de blocage d'accès public, ce qui expose les données à une suppression accidentelle ou une fuite publique.
+
+**Correction :** Activer `versioning { enabled = true }`, `block_public_acls = true` et `block_public_policy = true` sur tous les buckets.
+
+---
+
+### Combien de contrôles échouent ?
+
+**221 contrôles échouent** sur l'ensemble des ressources Terraform AWS. Les ressources les plus touchées sont les clusters RDS (9 clusters × ~9 checks chacun), les buckets S3 (6 buckets × 7 checks) et les security groups.
+
+### Quelles sont les erreurs de configuration les plus critiques ?
+
+Les deux erreurs les plus critiques sont les **clés AWS hardcodées dans le provider Terraform** (CKV_AWS_41), qui permettent à quiconque d'accéder au compte AWS, et les **security groups ouverts à `0.0.0.0/0`** sur SSH et HTTP (CKV_AWS_23, CKV_AWS_24), qui exposent directement les instances sur Internet. Des secrets sont également détectés en clair dans l'historique Git (CKV_SECRET_2).
+
+### Quels risques représentent-elles ?
+
+Les credentials AWS exposés permettent une prise de contrôle totale du compte cloud (création de ressources, exfiltration de données, destruction d'infrastructure). Les security groups permissifs facilitent les attaques par force brute SSH et l'exploitation de services web. L'absence de chiffrement et de logging rend les données sensibles accessibles en clair et empêche toute investigation post-incident.
+
+### Comment les corriger ?
+
+Supprimer immédiatement les credentials du code et les révoquer dans AWS IAM, restreindre les règles de security groups aux seules IP nécessaires, activer le chiffrement au repos sur toutes les ressources (S3, RDS, EBS), activer le versioning et le blocage d'accès public sur les buckets S3, et mettre en place le logging centralisé vers CloudWatch sur l'ensemble des services.
+
